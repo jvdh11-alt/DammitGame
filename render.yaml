@@ -1,0 +1,9 @@
+# Render.com blueprint: one free web service that runs the game server and also serves the built game.
+services:
+  - type: web
+    name: dammit
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run server
+    healthCheckPath: /health
