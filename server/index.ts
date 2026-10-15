@@ -5,10 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { botTurnSteps, cardLabel, DammitGame, extendMeld, RuleError } from '../src/engine';
-import { ClientMsg, SeatInfo, ServerMsg, snapshotFor } from '../src/net/protocol';
+import { ClientMsg, GameKind, SeatInfo, ServerMsg, snapshotFor, swoopSnapshotFor } from '../src/net/protocol';
+import { describePlay, DEFAULT_TARGET, SwoopError, SwoopGame } from '../src/swoop/engine';
+import { swoopBotSteps } from '../src/swoop/bot';
+import { cardLabel as label } from '../src/engine/cards';
 
 const PORT = Number(process.env.PORT) || 8787;
-const MAX_SEATS = 10;
+const MAX_SEATS = 20;
 const STEP_MS = Number(process.env.STEP_MS) || 1200;      // pause between bot actions
 const DEAL_MS = Number(process.env.DEAL_MS) || 4800;      // let everyone's deal animation finish
 const TAKEOVER_MS = Number(process.env.TAKEOVER_MS) || 10000; // a dropped player is replaced by a bot after this long
@@ -21,7 +24,9 @@ const meldCardIds = (g: DammitGame) => new Set(g.players.flatMap((p) => p.melds.
 
 class Room {
   seats: Seat[] = [];
-  game: DammitGame | null = null;
+  game: DammitGame | SwoopGame | null = null;
+  kind: GameKind = 'dammit';
+  target = DEFAULT_TARGET;
   gen: Generator<string, void> | null = null;
   genSeat = -1;
   timer: ReturnType<typeof setTimeout> | undefined;
@@ -40,7 +45,7 @@ class Room {
 
   broadcastLobby() {
     const seats = this.info();
-    this.seats.forEach((s, i) => this.send(s, { t: 'lobby', code: this.code, seat: i, seats }));
+    this.seats.forEach((s, i) => this.send(s, { t: 'lobby', code: this.code, seat: i, seats, game: this.kind, target: this.target }));
   }
 
   /** Sends every seat its own view of the table. */
@@ -48,7 +53,7 @@ class Room {
     const g = this.game!;
     const seats = this.info();
     this.seats.forEach((s, i) => this.send(s, {
-      t: 'state', seat: i, snap: snapshotFor(g, i), lines, flash, actor, drawn: actor === i ? drawn : null, resume: i === resumeSeat, seats,
+      t: 'state', kind: this.kind, seat: i, snap: g instanceof SwoopGame ? swoopSnapshotFor(g, i) : snapshotFor(g, i), lines, flash, actor, drawn: actor === i ? drawn : null, resume: i === resumeSeat, seats,
     }));
   }
 
@@ -59,9 +64,10 @@ class Room {
   }
 
   start() {
-    this.game = new DammitGame(this.seats.map((s) => s.name));
+    const names = this.seats.map((s) => s.name);
+    this.game = this.kind === 'swoop' ? new SwoopGame(names, { target: this.target }) : new DammitGame(names);
     this.gen = null;
-    this.pauseUntil = Date.now() + DEAL_MS;
+    this.pauseUntil = Date.now() + (this.kind === 'swoop' ? 1500 : DEAL_MS);
     this.broadcastState();
     this.schedule();
   }
@@ -94,14 +100,14 @@ class Room {
     if (this.gen && this.genSeat !== g.current) this.gen = null; // stale: that turn already finished
     if (!this.gen && !this.automated(g.current)) return this.schedule();
     const actor = g.current;
-    if (!this.gen) { this.gen = botTurnSteps(g); this.genSeat = g.current; }
-    const before = meldCardIds(g);
+    if (!this.gen) { this.gen = g instanceof SwoopGame ? swoopBotSteps(g) : botTurnSteps(g); this.genSeat = g.current; }
+    const before = g instanceof DammitGame ? meldCardIds(g) : new Set<number>();
     const step = this.gen.next();
     if (step.done) {
       this.gen = null;
     } else {
       const lines = [step.value];
-      const flash = / played .* onto | laid down /.test(step.value) ? [...meldCardIds(g)].filter((i) => !before.has(i)) : [];
+      const flash = g instanceof DammitGame && / played .* onto | laid down /.test(step.value) ? [...meldCardIds(g)].filter((i) => !before.has(i)) : [];
       this.broadcastState(lines, flash, actor);
     }
     if (g.status !== 'playing' && step.done) this.broadcastState();
@@ -111,6 +117,7 @@ class Room {
   act(seat: number, m: Extract<ClientMsg, { t: 'act' }>) {
     const g = this.game, s = this.seats[seat];
     if (!g || !s) return;
+    if (g instanceof SwoopGame) return this.actSwoop(g, seat, s, m);
     try {
       if (g.status !== 'playing') throw new RuleError('The hand is over');
       if (g.current !== seat) throw new RuleError("It's not your turn");
@@ -170,9 +177,51 @@ class Room {
     }
   }
 
+  actSwoop(g: SwoopGame, seat: number, s: Seat, m: Extract<ClientMsg, { t: 'act' }>) {
+    try {
+      if (g.status !== 'playing') throw new SwoopError('The round is over');
+      if (g.current !== seat) throw new SwoopError("It's not your turn");
+      if (this.gen && this.genSeat === seat) throw new SwoopError('A bot is finishing your turn, one moment…');
+      this.gen = null;
+      const name = g.players[seat].name;
+      const lines: string[] = [];
+      switch (m.a) {
+        case 'splay':
+          if (!Array.isArray(m.ids) || m.ids.length > 60) throw new SwoopError('Select the card(s) to play');
+          lines.push(describePlay(name, g.play(m.ids.map(Number))));
+          break;
+        case 'sflip': {
+          const slot = Number(m.slot);
+          const card = g.players[seat].mystery[slot];
+          const res = g.flip(slot);
+          lines.push(res.took
+            ? `${name} flipped ${label(res.card)}: too high, took the pile (${g.lastPlay!.count} cards)`
+            : `${name} flipped a mystery card: ${label(card ?? res.card)}`);
+          break;
+        }
+        case 'stake': lines.push(describePlay(name, g.take(Number(m.id)))); break;
+        default: throw new SwoopError('Unknown move');
+      }
+      if (g.status !== 'playing') lines.push(g.lastOut === null ? 'Nobody could go out: round ends' : `${g.players[g.lastOut].name} went out!`);
+      this.broadcastState(lines, [], seat);
+      this.schedule();
+    } catch (e) {
+      this.send(s, { t: 'err', msg: e instanceof SwoopError ? e.message : 'Something went wrong' });
+    }
+  }
+
   nextHand() {
     const g = this.game;
-    if (!g || g.status !== 'handOver') return;
+    if (!g) return;
+    if (g instanceof SwoopGame) {
+      if (g.status !== 'roundOver') return;
+      g.nextRound();
+      this.gen = null;
+      this.pauseUntil = Date.now() + 1500;
+      this.broadcastState([`Round ${g.roundNumber} dealt`]);
+      return this.schedule();
+    }
+    if (g.status !== 'handOver') return;
     g.nextHand();
     this.gen = null;
     this.pauseUntil = Date.now() + DEAL_MS;
@@ -226,6 +275,7 @@ function handle(ws: WebSocket, m: ClientMsg) {
       if (w) return;
       if (rooms.size > 200) return send({ t: 'err', msg: 'Server is full, try later' });
       const room = new Room(newCode());
+      room.kind = m.game === 'swoop' ? 'swoop' : 'dammit';
       rooms.set(room.code, room);
       const tk = token();
       room.seats.push({ name: cleanName(m.name), bot: false, token: tk, ws: null, lostAt: 0 });
@@ -281,9 +331,14 @@ function handle(ws: WebSocket, m: ClientMsg) {
       room.seats.splice(m.seat, 1);
       room.seats.forEach((x) => { const ww = x.ws && where.get(x.ws); if (ww) ww.seat = room.seats.indexOf(x); });
       return room.broadcastLobby();
+    case 'settarget':
+      if (room.game || room.kind !== 'swoop' || seat !== room.hostSeat()) return;
+      room.target = Math.min(100000, Math.max(1, Math.round(Number(m.target)) || DEFAULT_TARGET));
+      return room.broadcastLobby();
     case 'start':
       if (room.game || seat !== room.hostSeat()) return;
       if (room.seats.length < 2) return send({ t: 'err', msg: 'Add a friend or a bot first' });
+      if (room.kind === 'swoop') room.target = Math.min(100000, Math.max(1, Math.round(Number(m.target)) || DEFAULT_TARGET));
       return room.start();
     case 'tolobby':
       if (!room.game || seat !== room.hostSeat()) return;

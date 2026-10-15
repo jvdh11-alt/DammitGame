@@ -1,5 +1,7 @@
 import './style.css';
-import { ClientMsg, mirrorGame, ServerMsg } from '../net/protocol';
+import { ClientMsg, GameKind, mirrorGame, ServerMsg, SwoopSnapshot, Snapshot } from '../net/protocol';
+import { SwoopUI } from '../swoop/ui';
+import { DEFAULT_TARGET } from '../swoop/engine';
 import { clearSession, defaultServerUrl, loadSession, NetState, normalizeUrl, openSocket, saveServerUrl, saveSession, sendMsg } from '../net/client';
 import { audio, SfxName } from './audio';
 import {
@@ -25,8 +27,9 @@ const flag = (k: string, d: boolean) => { const v = store.get(k); return v === n
 /** Bot speed 1 (slowest, 3.0s) to 10 (fastest, 0.7s) is the pause before each bot action. */
 const delayFor = (speed: number) => Math.round(3000 - ((speed - 1) * 2300) / 9);
 
-type Screen = 'setup' | 'game' | 'online' | 'lobby';
-let screen: Screen = 'setup';
+type Screen = 'home' | 'setup' | 'swsetup' | 'game' | 'online' | 'lobby';
+let screen: Screen = 'home';
+let gameKind: GameKind = 'dammit';
 let game: DammitGame;
 let selected = new Set<number>();   // cards chosen for an action (discard / lay down / lay on)
 let kept = new Set<number>();       // cards marked "keeping for my goal"
@@ -64,6 +67,20 @@ let botCount = clampBots(Number(store.get('botCount')) || 3);
 
 const app = document.getElementById('app')!;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+const swoopUI: SwoopUI = new SwoopUI({
+  app, esc,
+  sfx: (n) => audio.sfx(n),
+  soundControls: () => soundControls(),
+  speedControl: () => `<label class="speed"><span class="lbl">Bot speed</span> <input type="range" min="1" max="10" step="1" value="${botSpeed}" data-speed>
+          <span data-speed-label>${speedLabel()}</span></label>`,
+  botDelay: () => delayFor(botSpeed),
+  send: (m) => sendMsg(net?.ws ?? null, m),
+  leave: () => { if (net) return leaveRoom(); swoopUI.dispose(); screen = 'swsetup'; render(); },
+  toLobby: () => sendMsg(net?.ws ?? null, { t: 'tolobby' }),
+  isHost: () => !!net?.seats[net.seat]?.host,
+  newSolo: () => { swoopUI.dispose(); screen = 'swsetup'; render(); },
+});
 
 // ---------- helpers ----------
 
@@ -213,7 +230,7 @@ function soundControls(inline = false): string {
   if (inline) return `<div class="sound-rows">${soundRows()}</div>`;
   const fsOk = !!document.documentElement.requestFullscreen;
   const fsBtn = fsOk ? `<button class="ghost small" data-action="fullscreen">${document.fullscreenElement ? '⤢ Exit full screen' : '⛶ Full screen (hides the browser bar)'}</button>` : '';
-  const toggles = `<div class="toggles">
+  const toggles = gameKind !== 'dammit' ? '' : `<div class="toggles">
       <label><input type="checkbox" data-toggle="showMelds" ${showMelds ? 'checked' : ''}> Highlight melds in my hand</label>
       <label><input type="checkbox" data-toggle="showPlayable" ${showPlayable ? 'checked' : ''}> Highlight cards I can play on melds</label>
     </div>`;
@@ -248,7 +265,10 @@ function announceEnd() {
 
 function render() {
   if (drag?.active) return; // never rebuild the screen under a card being dragged; endDrag re-renders
+  if (screen === 'game' && gameKind === 'swoop') return swoopUI.render();
   app.className = screen === 'game' ? 'game' : 'setup-screen';
+  if (screen === 'home') return renderHome();
+  if (screen === 'swsetup') return renderSwSetup();
   if (screen === 'setup') return renderSetup();
   if (screen === 'online') return renderOnline();
   if (screen === 'lobby') return renderLobby();
@@ -449,6 +469,43 @@ function speedLabel(): string {
   return `${(delayFor(botSpeed) / 1000).toFixed(1)}s`;
 }
 
+const swBots = () => Math.min(30, Math.max(1, Math.round(Number(store.get('swBots'))) || 3));
+const swTarget = () => Math.min(100000, Math.max(1, Math.round(Number(store.get('swTarget'))) || DEFAULT_TARGET));
+
+function renderHome() {
+  app.innerHTML = `
+    <div class="setup home">
+      <div class="s-left"><h1>Card Night</h1><p class="muted">Pick a game. Play against bots, or with friends online.</p></div>
+      <div class="s-right">
+        <button class="big gamebtn" data-action="pick-dammit"><b>Dammit</b><small>Ten levels of sets and runs. Rummy style.</small></button>
+        <button class="big gamebtn" data-action="pick-swoop"><b>Swoop</b><small>Shed your cards, clear the pile. Lowest score wins.</small></button>
+        ${soundControls(true)}
+      </div>
+    </div>`;
+}
+
+function renderSwSetup() {
+  app.innerHTML = `
+    <div class="setup">
+      <div class="s-left"><h1>Swoop</h1>
+      <p class="muted">Get rid of all your cards. Play the same number or lower than the pile, or take it. Four of a kind or a 10 clears the pile. Lowest total wins.</p></div>
+      <div class="s-right">
+      <label class="opp-count">Your name
+        <input type="text" maxlength="16" value="${esc(playerName)}" placeholder="You" data-pname aria-label="Your name">
+      </label>
+      <label class="opp-count">Bots
+        <input type="number" inputmode="numeric" min="1" max="30" value="${swBots()}" data-swbots aria-label="Number of bots">
+      </label>
+      <label class="opp-count">Game ends at
+        <input type="number" inputmode="numeric" min="1" value="${swTarget()}" data-swtarget aria-label="Target score"> points
+      </label>
+      <button class="big" data-action="swstart">Deal me in</button>
+      <button class="ghost" data-action="online">Play with friends</button>
+      <button class="ghost small" data-action="home">← Games</button>
+      </div>
+    </div>`;
+}
+
 function renderSetup() {
   app.innerHTML = `
     <div class="setup">
@@ -464,6 +521,7 @@ function renderSetup() {
       </label>
       <button class="big" data-action="start">Deal me in</button>
       <button class="ghost" data-action="online">Play with friends</button>
+      <button class="ghost small" data-action="home">← Games</button>
       </div>
       <details><summary>How to play</summary>
         <ul>
@@ -580,9 +638,32 @@ function attempt(fn: () => void) {
 
 const wentOut = () => { selected.clear(); if (game.status !== 'playing') pushLog([`${myName()} went out!`]); };
 
+function homeAction(a: string): boolean {
+  const nameInput = app.querySelector<HTMLInputElement>('[data-pname]');
+  if (nameInput) { playerName = nameInput.value.trim().slice(0, 16); store.set('playerName', playerName); }
+  switch (a) {
+    case 'pick-dammit': gameKind = 'dammit'; screen = 'setup'; render(); return true;
+    case 'pick-swoop': gameKind = 'swoop'; screen = 'swsetup'; render(); return true;
+    case 'home': screen = 'home'; render(); return true;
+    case 'swstart': {
+      const bots = Math.min(30, Math.max(1, Math.round(Number(app.querySelector<HTMLInputElement>('[data-swbots]')?.value)) || 3));
+      const target = Math.min(100000, Math.max(1, Math.round(Number(app.querySelector<HTMLInputElement>('[data-swtarget]')?.value)) || DEFAULT_TARGET));
+      store.set('swBots', String(bots)); store.set('swTarget', String(target));
+      const names = BOT_NAMES.slice().sort(() => Math.random() - 0.5);
+      const bn = Array.from({ length: bots }, (_, i) => names[i] ?? `Bot ${i + 1}`);
+      gameKind = 'swoop'; screen = 'game';
+      swoopUI.startSolo([playerName || 'You', ...bn], target);
+      return true;
+    }
+  }
+  return false;
+}
+
 function onAction(el: HTMLElement) {
   const a = el.dataset.action!;
   const me = game?.players[HUMAN];
+  if (screen === 'game' && gameKind === 'swoop' && swoopUI.onAction(a, el)) return;
+  if (screen === 'home' || screen === 'swsetup') { if (homeAction(a)) return; }
   if (screen === 'online' || screen === 'lobby') return onlineAction(a, el);
   if (net && screen === 'game' && netAction(a, el)) return;
   switch (a) {
@@ -727,6 +808,7 @@ function onAction(el: HTMLElement) {
 
 let net: NetState | null = null;
 let onlineErr = '';
+let lobbyTarget = DEFAULT_TARGET;
 let onlineBusy = false;
 let prefillCode = '';
 const netBar = document.createElement('div');
@@ -747,7 +829,7 @@ function openNet(n: NetState, first: ClientMsg, tries = 0) {
       if (net !== n) return;
       n.online = false;
       if (!n.code) { net = null; onlineBusy = false; onlineErr = "Couldn't reach the server. Check the server address below."; render(); return; }
-      if (screen === 'setup' && tries >= 3) { net = null; render(); return; } // gave up resuming on app start
+      if ((screen === 'home' || screen === 'setup') && tries >= 3) { net = null; render(); return; } // gave up resuming on app start
       updateNetBar();
       window.setTimeout(() => { if (net === n && !n.online) openNet(n, { t: 'rejoin', code: n.code, token: n.token }, tries + 1); }, 2000);
     },
@@ -773,7 +855,7 @@ function resumeSession() {
 
 function leaveRoom() {
   if (net) { sendMsg(net.ws, { t: 'leave' }); const ws = net.ws; net = null; window.setTimeout(() => ws?.close(), 300); }
-  clearSession(); HUMAN = 0; screen = 'setup'; showBoard = false; updateNetBar(); render();
+  swoopUI.dispose(); clearSession(); HUMAN = 0; screen = 'home'; showBoard = false; updateNetBar(); render();
 }
 
 function onNet(n: NetState, m: ServerMsg) {
@@ -783,12 +865,13 @@ function onNet(n: NetState, m: ServerMsg) {
       saveSession({ url: n.url, code: m.code, token: m.token });
       return;
     case 'lobby':
+      swoopUI.dispose(); gameKind = m.game; lobbyTarget = m.target;
       n.seats = m.seats; n.seat = m.seat; HUMAN = m.seat; n.inGame = false; onlineBusy = false;
       window.clearTimeout(dealTimer); dealStep = -1;
       screen = 'lobby'; updateNetBar(); return render();
     case 'state': return onNetState(n, m);
     case 'err':
-      if (m.msg === 'That room has ended') { clearSession(); net = null; HUMAN = 0; screen = 'setup'; onlineErr = m.msg; return render(); }
+      if (m.msg === 'That room has ended') { clearSession(); net = null; HUMAN = 0; screen = 'home'; onlineErr = m.msg; return render(); }
       onlineBusy = false;
       if (screen === 'game') message = m.msg; else onlineErr = m.msg;
       return render();
@@ -796,9 +879,16 @@ function onNet(n: NetState, m: ServerMsg) {
 }
 
 function onNetState(n: NetState, m: Extract<ServerMsg, { t: 'state' }>) {
+  if (m.kind === 'swoop') {
+    gameKind = 'swoop'; HUMAN = m.seat; n.seat = m.seat; n.seats = m.seats; n.inGame = true; onlineBusy = false;
+    screen = 'game'; updateNetBar();
+    swoopUI.applyState(m.snap as SwoopSnapshot, m.seat, m.lines, m.resume, m.seats);
+    return;
+  }
+  gameKind = 'dammit';
   const prevHand = n.inGame ? game.handNumber : -1;
   const prevMine = n.inGame && game.status === 'playing' && game.current === HUMAN;
-  game = mirrorGame(m.snap);
+  game = mirrorGame(m.snap as Snapshot);
   HUMAN = m.seat; n.seat = m.seat; n.seats = m.seats; onlineBusy = false;
   screen = 'game'; updateNetBar();
   const first = !n.inGame;
@@ -887,8 +977,8 @@ function onlineAction(a: string, el: HTMLElement) {
   if (nameInput) { playerName = nameInput.value.trim().slice(0, 16); store.set('playerName', playerName); }
   const name = playerName || 'Player';
   switch (a) {
-    case 'backsetup': onlineErr = ''; screen = 'setup'; return render();
-    case 'create': if (!onlineBusy) connect({ t: 'create', name }); return;
+    case 'backsetup': onlineErr = ''; screen = gameKind === 'swoop' ? 'swsetup' : 'setup'; return render();
+    case 'create': if (!onlineBusy) connect({ t: 'create', name, game: gameKind }); return;
     case 'join': {
       const code = (app.querySelector<HTMLInputElement>('[data-code]')?.value ?? '').trim().toUpperCase();
       if (code.length !== 4) { onlineErr = 'Enter the 4-letter room code'; return render(); }
@@ -897,7 +987,11 @@ function onlineAction(a: string, el: HTMLElement) {
     }
     case 'addbot': return sendMsg(net?.ws ?? null, { t: 'addbot' });
     case 'removebot': return sendMsg(net?.ws ?? null, { t: 'removebot', seat: Number(el.dataset.seat) });
-    case 'netstart': return sendMsg(net?.ws ?? null, { t: 'start' });
+    case 'netstart': {
+      const target = Math.round(Number(app.querySelector<HTMLInputElement>('[data-swtarget]')?.value)) || swTarget();
+      if (gameKind === 'swoop') store.set('swTarget', String(target));
+      return sendMsg(net?.ws ?? null, { t: 'start', target });
+    }
     case 'quit': return leaveRoom();
     case 'invite': {
       const url = `${location.origin}${location.pathname}?room=${net?.code}`;
@@ -939,12 +1033,15 @@ function renderLobby() {
       ${host && s.bot ? `<button class="ghost small" data-action="removebot" data-seat="${i}" aria-label="Remove ${esc(s.name)}">✕</button>` : ''}</li>`).join('');
   app.innerHTML = `
     <div class="setup">
-      <div class="s-left"><h1>Room</h1><div class="roomcode" aria-label="Room code">${esc(n.code)}</div>
+      <div class="s-left"><h1>${gameKind === 'swoop' ? 'Swoop' : 'Dammit'} room</h1><div class="roomcode" aria-label="Room code">${esc(n.code)}</div>
         <p class="muted">Friends join with this code.</p>
         <button class="ghost small" data-action="invite">Share invite link</button>${onlineErr ? `<p class="neterr">${esc(onlineErr)}</p>` : ''}</div>
       <div class="s-right">
         <ul class="seatlist">${rows}</ul>
-        ${host ? `<button class="ghost" data-action="addbot" ${n.seats.length >= 10 ? 'disabled' : ''}>＋ Add a bot</button>
+        ${host && gameKind === 'swoop' ? `<label class="opp-count">Game ends at
+          <input type="number" inputmode="numeric" min="1" value="${lobbyTarget}" data-swtarget aria-label="Target score"> points</label>` : ''}
+        ${!host && gameKind === 'swoop' ? `<p class="muted">Game ends at ${lobbyTarget} points</p>` : ''}
+        ${host ? `<button class="ghost" data-action="addbot" ${n.seats.length >= 20 ? 'disabled' : ''}>＋ Add a bot</button>
           <button class="big" data-action="netstart" ${n.seats.length < 2 ? 'disabled' : ''}>Start game</button>`
           : '<p class="muted">Waiting for the host to start…</p>'}
         <button class="ghost small" data-action="quit">Leave room</button>
@@ -982,6 +1079,7 @@ app.addEventListener('input', (ev) => {
     if (t.dataset.vol === 'music') audio.setMusicVol(v); else audio.setSfxVol(v);
     return;
   }
+  if (t.hasAttribute('data-swtarget') && screen === 'lobby') { const v = Math.round(Number(t.value)); if (v >= 1) lobbyTarget = v; return; }
   if (t.hasAttribute('data-botcount')) {
     // Typing is free-form; the value is clamped when it's committed (blur/Enter) or the game starts.
     const n = Number(t.value);
@@ -1000,6 +1098,11 @@ app.addEventListener('input', (ev) => {
 app.addEventListener('change', (ev) => {
   const t = ev.target as HTMLInputElement;
   if (t.dataset.vol === 'sfx') audio.sfx('draw'); // preview the new effects volume
+  if (t.hasAttribute('data-swtarget') && screen === 'lobby') {
+    const v = Math.round(Number(t.value));
+    if (v >= 1) { lobbyTarget = v; sendMsg(net?.ws ?? null, { t: 'settarget', target: v }); }
+    return;
+  }
   if (t.hasAttribute('data-botcount')) {
     botCount = clampBots(Number(t.value));
     t.value = String(botCount);
@@ -1098,6 +1201,6 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
-if (new URLSearchParams(location.search).has('debug')) (window as unknown as Record<string, unknown>).__dammit = { game: () => game, render };
+if (new URLSearchParams(location.search).has('debug')) (window as unknown as Record<string, unknown>).__dammit = { game: () => game, render, swoop: () => (swoopUI as unknown as { g: unknown }).g, swoopUI };
 render();
-if (screen === 'setup') resumeSession();
+if (screen === 'home') resumeSession();
