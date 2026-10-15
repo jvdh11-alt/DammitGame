@@ -54,7 +54,8 @@ class Room {
 
   freeBotName(): string {
     const used = new Set(this.seats.map((s) => s.name));
-    return BOT_NAMES.find((n) => !used.has(n)) ?? `Bot ${this.seats.length + 1}`;
+    const free = BOT_NAMES.filter((n) => !used.has(n));
+    return free.length ? free[Math.floor(Math.random() * free.length)] : `Bot ${this.seats.length + 1}`;
   }
 
   start() {

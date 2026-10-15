@@ -534,7 +534,8 @@ function overlayHtml(): string {
 
 function startGame() {
   window.clearTimeout(botTimer); window.clearTimeout(dealTimer); dealStep = -1; botSteps = null; announcedKey = ''; overlayKey = '';
-  game = new DammitGame([playerName.trim() || 'You', ...BOT_NAMES.slice(0, botCount)]);
+  const names = BOT_NAMES.slice().sort(() => Math.random() - 0.5).slice(0, botCount); // different bots each game
+  game = new DammitGame([playerName.trim() || 'You', ...names]);
   selected.clear(); kept.clear(); lastDrawnId = null; handOrder = game.players[HUMAN].hand.map((c) => c.id); sortMode = 'custom'; message = ''; log = []; showBoard = false; oppDetail = null; panel = null;
   handStartLevels = game.players.map((p) => p.level);
   screen = 'game';
