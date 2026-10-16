@@ -158,3 +158,18 @@ describe('bots', () => {
     }
   });
 });
+
+describe('max four of a number', () => {
+  it('cannot overfill: 2 nines onto 3 nines is refused, 1 nine swoops', () => {
+    const g = rigged([[c(9), c(9), c(2)], [c(9), c(1)]]);
+    g.pile = [c(9), c(9), c(9)];
+    const nines = g.players[0].hand.filter((x) => x.rank === 9).map((x) => x.id);
+    expect(g.checkPlay(nines)).not.toBeNull();
+    g.play([nines[0]]);
+    expect(g.pile.length).toBe(0); // swooped
+  });
+  it('cannot play five at once', () => {
+    const g = rigged([[c(4), c(4), c(4), c(4), c(4)], [c(1)]]);
+    expect(g.checkPlay(g.players[0].hand.map((x) => x.id))).not.toBeNull();
+  });
+});

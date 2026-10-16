@@ -665,7 +665,7 @@ function onAction(el: HTMLElement) {
   if (screen === 'game' && gameKind === 'swoop' && swoopUI.onAction(a, el)) return;
   if (screen === 'home' || screen === 'swsetup') { if (homeAction(a)) return; }
   if (screen === 'online' || screen === 'lobby') return onlineAction(a, el);
-  if (net && screen === 'game' && netAction(a, el)) return;
+  if (net && screen === 'game' && gameKind === 'dammit' && netAction(a, el)) return;
   switch (a) {
     case 'start': {
       const nm = app.querySelector<HTMLInputElement>('[data-pname]');
@@ -920,7 +920,7 @@ function onNetState(n: NetState, m: Extract<ServerMsg, { t: 'state' }>) {
 
 /** Game-screen actions in an online game: the server decides, we just ask. Returns true if handled. */
 function netAction(a: string, el: HTMLElement): boolean {
-  if (!net) return false;
+  if (!net || !game) return false;
   const me = game.players[HUMAN];
   const send = (m: ClientMsg) => { message = ''; sendMsg(net!.ws, m); };
   const say = (t: string) => { message = t; render(); };

@@ -19,7 +19,7 @@ export function* swoopBotSteps(g: SwoopGame): Generator<string, void> {
     // A flipped mystery card must be played (plus any matching cards).
     if (g.revealed) {
       const r = g.revealed;
-      const extra = r.rank === SWOOP_RANK ? [] : g.available(me).filter((c) => c.rank === r.rank && c.id !== r.id).map((c) => c.id);
+      const extra = r.rank === SWOOP_RANK ? [] : g.available(me).filter((c) => c.rank === r.rank && c.id !== r.id).slice(0, Math.max(0, g.maxCount(r.rank) - 1)).map((c) => c.id);
       yield describePlay(me.name, g.play([r.id, ...extra]));
       continue;
     }
@@ -59,12 +59,12 @@ export function* swoopBotSteps(g: SwoopGame): Generator<string, void> {
     if (top !== null) {
       const run = g.topRun();
       const finisher = numbers.find(([rank, cs]) => rank === top && run + cs.length >= 4);
-      if (finisher) pick = finisher[1];
+      if (finisher) pick = finisher[1].slice(0, 4 - run);
     }
     // 2) a SWOOP card when the pile is big, or when it is all we can play.
     if (!pick && swoops.length && (g.pile.length >= 6 || numbers.length === 0)) pick = [swoops[0]];
-    // 3) otherwise: lead low on an empty pile (squeeze the next player), dump the highest legal number on a live pile.
-    if (!pick && numbers.length) pick = top === null ? numbers[0][1] : numbers[numbers.length - 1][1];
+    // 3) otherwise: get rid of the highest legal number first (high cards are the hardest to shed later).
+    if (!pick && numbers.length) { const [rank, cs] = numbers[numbers.length - 1]; pick = cs.slice(0, g.maxCount(rank)); }
     if (!pick) pick = [swoops[0]];
 
     yield describePlay(me.name, g.play(pick.map((c) => c.id)));

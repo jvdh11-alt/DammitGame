@@ -97,7 +97,7 @@ export class SwoopUI {
     for (const l of lines) this.log.unshift(l);
     this.log.length = Math.min(this.log.length, 60);
     lines.slice(0, 4).forEach((l, i) => {
-      const fx = /SWOOP/.test(l) ? 'lay' : /took the pile/.test(l) ? 'draw' : /flipped/.test(l) ? 'tick' : /played/.test(l) ? 'discard' : null;
+      const fx = /SWOOP/.test(l) ? 'swoosh' : /took the pile/.test(l) ? 'draw' : /flipped/.test(l) ? 'tick' : /played/.test(l) ? 'discard' : null;
       if (fx) window.setTimeout(() => this.env.sfx(fx), i * 90);
     });
     const lp = this.g?.lastPlay;
@@ -206,6 +206,11 @@ export class SwoopUI {
     if (g.revealed && c.rank !== g.revealed.rank) { this.message = 'Only add cards that match the flipped card'; return this.render(); }
     if (cur.length && cur[0].rank !== c.rank) {
       this.selected = new Set(g.revealed ? [g.revealed.id] : []);
+    }
+    const sameRank = [...this.selected].filter((id) => g.available(g.players[this.me]).find((x) => x.id === id)?.rank === c.rank).length;
+    if (c.rank !== SWOOP_RANK && !this.selected.has(c.id) && sameRank + 1 > g.maxCount(c.rank)) {
+      this.message = g.maxCount(c.rank) === 4 ? 'Four of a number is the most you can play at once' : `Only ${g.maxCount(c.rank)} more ${rankName(c.rank)}${g.maxCount(c.rank) > 1 ? 's' : ''} can go on this pile`;
+      return this.render();
     }
     if (c.rank === SWOOP_RANK) {
       const had = this.selected.has(c.id);
@@ -355,11 +360,10 @@ export class SwoopUI {
           <button class="ghost small" data-action="sw-leave">${this.net ? 'Leave' : 'New game'}</button>
         </div>
       </header>
-      <div class="sw-opps ${g.players.length > 5 ? 'many' : ''}">${opps}</div>
+      <div class="sw-opps ${g.players.length > 9 ? 'many' : ''}">${opps}</div>
       <div class="sw-mid">
         <div class="sw-pilebox">
-          <div class="sw-pile">${top ? this.card(top, `${this.flashIds.has(top.id) ? 'flash' : ''}`, '', 'div') : '<div class="swc empty">Empty</div>'}
-            ${g.pile.length > 1 ? `<span class="sw-count">${g.pile.length}</span>` : ''}</div>
+          <div class="sw-fan" style="--step:${Math.max(5, Math.min(18, Math.floor(210 / Math.max(1, g.pile.length))))}px">${g.pile.length ? g.pile.map((c, i) => this.card(c, `${i === g.pile.length - 1 && this.flashIds.has(c.id) ? 'flash' : ''}`, '', 'div')).join('') : '<div class="swc empty">Empty</div>'}</div>
           <div class="sw-call">${call ? `<b>${env.esc(call)}</b>` : '<span class="muted">Empty pile</span>'}</div>
         </div>
         ${revealedHtml}
@@ -367,13 +371,13 @@ export class SwoopUI {
           ${this.message ? `<div class="sw-msg">${env.esc(this.message)}</div>` : ''}</div>
       </div>
       <div class="sw-me ${myTurn ? 'turn' : ''}">
-        <div class="sw-meh"><b>${env.esc(me.name)}</b><span class="muted"> · ${me.hand.length} in hand · ${me.total} pts</span></div>
         <div class="sw-board">${[0, 1, 2, 3].map((i) => this.slot(me, i, true, flippable.includes(i))).join('')}</div>
         <div class="sw-hand">${hand}</div>
         <div class="sw-actions">
           <button class="big" data-action="sw-play" ${canPlay ? '' : 'disabled'}>${canPlay ? `Play ${sel.length > 1 ? `${sel.length} × ` : ''}${rankName(sel[0].rank)}` : 'Play'}</button>
           ${this.armed !== null ? '<button class="big warn" data-action="sw-flip">Flip mystery card</button>' : ''}
           ${myTurn && g.canTake() ? '<button class="big warn" data-action="sw-take">Take the pile</button>' : ''}
+          <span class="sw-meh"><b>${env.esc(me.name)}</b><span class="muted"> · ${me.hand.length} in hand · ${me.total} pts</span></span>
         </div>
       </div>
       ${this.overlay()}`;

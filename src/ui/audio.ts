@@ -7,7 +7,7 @@ type Ctx = BaseAudioContext;
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
 export type SfxName =
-  | 'draw' | 'discard' | 'lay' | 'tick' | 'turn'
+  | 'draw' | 'discard' | 'lay' | 'swoosh' | 'tick' | 'turn'
   | 'handWon' | 'handOver' | 'gameWon' | 'gameOver';
 
 // ---------- small synth ----------
@@ -244,6 +244,12 @@ function playSfx(s: Synth, name: SfxName, t: number) {
       s.bell(N.E5, t, 0.7, 0.7);
       s.bell(N.B5, t + 0.1, 0.9, 0.6);
       s.noiseBurst(t, 0.05, 0.12, 'highpass', 2500, 2500, 0.7);
+      break;
+    case 'swoosh': // a swoop: rising then falling whoosh with a sparkle
+      s.noiseBurst(t, 0.35, 1.2, 'bandpass', 300, 4500, 1.4, 0.2);
+      s.noiseBurst(t + 0.25, 0.45, 1.0, 'bandpass', 4500, 400, 1.4, 0.3);
+      s.bell(N.C6, t + 0.3, 0.6, 0.35);
+      s.bell(N.G6, t + 0.4, 0.8, 0.3);
       break;
     case 'tick':
       s.bell(N.E6, t, 0.18, 0.8);

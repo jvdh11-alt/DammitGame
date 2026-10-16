@@ -98,6 +98,13 @@ export class SwoopGame {
     return n;
   }
 
+  /** Most cards of this number that can be played now: the pile never holds more than four of one number. */
+  maxCount(rank: number): number {
+    if (rank === SWOOP_RANK) return 1;
+    const already = this.topRank() === rank ? this.topRun() : 0;
+    return Math.max(0, 4 - already);
+  }
+
   rankPlayable(rank: number): boolean {
     const top = this.topRank();
     return rank === SWOOP_RANK || top === null || rank <= top;
@@ -142,6 +149,7 @@ export class SwoopGame {
     if (cards.some((c) => c.rank !== rank)) return 'Play cards of the same number';
     if (rank === SWOOP_RANK && cards.length > 1) return 'Play one SWOOP card at a time';
     if (!this.rankPlayable(rank)) return 'Play the same number or lower than the pile';
+    if (cards.length > this.maxCount(rank)) return this.maxCount(rank) === 4 ? 'Only four of a number can be played at once' : `Only ${this.maxCount(rank)} more ${rankName(rank)}${this.maxCount(rank) > 1 ? 's' : ''} can go on this pile (four makes a SWOOP)`;
     return null;
   }
 
