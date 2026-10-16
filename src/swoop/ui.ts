@@ -104,7 +104,7 @@ export class SwoopUI {
       if (fx) window.setTimeout(() => this.env.sfx(fx), i * 90);
     });
     const lp = this.g?.lastPlay;
-    if (lp?.swoop && this.g?.swooped && lp !== this.holdPlay) {
+    if ((lp?.swoop || lp?.took) && this.g?.swooped && lp !== this.holdPlay) {
       this.holdPlay = lp; this.holdUntil = Date.now() + 2800;
       window.setTimeout(() => { if (this.g) this.render(); }, 2850);
     }
@@ -305,7 +305,7 @@ export class SwoopUI {
     if (!b && !m) return `<span class="slot empty"></span>`;
     if (!b && m) {
       const tap = mine && flippable ? `data-action="sw-mys" data-slot="${i}"` : mine ? `data-action="sw-mys" data-slot="${i}"` : '';
-      return `<span class="slot">${this.back(`up ${flippable ? 'canflip' : ''} ${this.armed === i ? 'armed' : ''}`, tap, mine ? 'button' : 'div')}</span>`;
+      return `<span class="slot">${this.back(`up ${flippable ? 'canflip' : ''} ${mine && this.armed === i ? 'armed' : ''}`, tap, mine ? 'button' : 'div')}</span>`;
     }
     const playable = mine && this.myTurn() && this.g!.pile.length > 0 && this.g!.rankPlayable(b!.rank);
     const face = mine
@@ -373,7 +373,7 @@ export class SwoopUI {
       <div class="sw-mid">
         <div class="sw-pilebox">
           <div class="sw-fan ${holding ? 'swooped' : ''}" style="--step:${Math.max(5, Math.min(18, Math.floor(210 / Math.max(1, shown.length))))}px">${shown.length ? shown.map((c, i) => this.card(c, `${!holding && i === shown.length - 1 && this.flashIds.has(c.id) ? 'flash' : ''}`, '', 'div')).join('') : '<div class="swc empty">Empty</div>'}</div>
-          <div class="sw-call">${holding ? '<b class="sw-boom">SWOOP! Pile cleared</b>' : call ? `<b>${env.esc(call)}</b>` : '<span class="muted">Empty pile</span>'}</div>
+          <div class="sw-call">${holding ? `<b class="sw-boom">${g.lastPlay?.took ? `${env.esc(g.players[g.lastPlay.player].name)} took the pile (${g.swooped!.length} cards)` : 'SWOOP! Pile cleared'}</b>` : call ? `<b>${env.esc(call)}</b>` : '<span class="muted">Empty pile</span>'}</div>
         </div>
         ${revealedHtml}
         <div class="sw-info"><div class="sw-status ${myTurn ? 'mine' : ''}">${env.esc(status)}</div><div class="sw-last muted">${last}</div>

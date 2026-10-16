@@ -46,16 +46,18 @@ export class SwoopGame {
   /** True until the current player plays a card this turn (or after a swoop): mystery cards may be flipped. */
   fresh = true;
   lastPlay: LastPlay | null = null;
-  /** The whole pile as it stood when it was last swooped (so the table can show it for a moment). */
+  /** The whole pile as it stood when it was last cleared (swooped or taken), so the table can show it for a moment). */
   swooped: Card[] | null = null;
   private turns = 0;
   private rng: Rng;
+  private firstSeat = 0;
   private decks: number;
 
   constructor(names: string[], opts: SwoopOptions = {}) {
     if (names.length < 2) throw new SwoopError('Need at least 2 players');
     this.target = Math.max(1, Math.round(opts.target ?? DEFAULT_TARGET));
     this.rng = mulberry32(opts.seed ?? Date.now());
+    this.firstSeat = opts.seed === undefined ? Math.floor(Math.random() * names.length) : 0; // random who starts (tests pass a seed: seat 0)
     this.decks = decksFor(names.length);
     this.players = names.map((name, id) => ({ id, name, hand: [], board: [], mystery: [], total: 0 }));
     this.deal();
@@ -73,7 +75,7 @@ export class SwoopGame {
     }
     this.stackCount = deck.length;
     this.pile = [];
-    this.current = (this.roundNumber - 1) % this.players.length;
+    this.current = (this.firstSeat + this.roundNumber - 1) % this.players.length;
     this.status = 'playing';
     this.revealed = null;
     this.fresh = true;
@@ -228,6 +230,7 @@ export class SwoopGame {
 
   private takeInto(p: SwoopPlayer, shown: Card) {
     this.pile.push(shown);
+    this.swooped = [...this.pile];
     this.lastPlay = { player: p.id, ids: [shown.id], rank: shown.rank, count: this.pile.length, swoop: false, took: true };
     p.hand.push(...this.pile);
     this.pile = [];

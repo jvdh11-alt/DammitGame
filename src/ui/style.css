@@ -439,3 +439,16 @@ button.big.warn { background: #ffb4a8; color: #3a0d06; }
 .sw-lc .swc { flex-direction: row; justify-content: flex-start; align-items: flex-start; padding: 2px 0 0 2px; }
 .sw-lc .swc .sw { display: none; }
 .sw-fan.swooped { filter: brightness(1.05); } .sw-fan.swooped .swc { outline: 2px solid var(--gold); } .sw-boom { color: var(--gold); }
+
+/* ---- reactions ---- */
+.react-layer { position: fixed; inset: 0; pointer-events: none; z-index: 60; }
+.react-btn { position: fixed; right: 10px; bottom: 10px; pointer-events: auto; width: 44px; height: 44px; border-radius: 50%; font-size: 1.4rem; padding: 0; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.35); }
+.react-pop { position: fixed; right: 10px; bottom: 62px; pointer-events: auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 6px; background: #12261f; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; }
+.react-pop[hidden], .react-btn[hidden] { display: none; }
+.react-pop button { font-size: 1.6rem; padding: 4px 8px; background: transparent; border: 0; }
+.react-float { position: absolute; inset: 0; overflow: hidden; }
+.react-bubble { position: absolute; bottom: 70px; font-size: 2.6rem; display: flex; flex-direction: column; align-items: center; animation: reactup 3.2s ease-out forwards; text-shadow: 0 2px 6px rgba(0,0,0,.5); }
+.react-bubble small { font-size: .75rem; background: rgba(0,0,0,.6); border-radius: 8px; padding: 1px 7px; color: #fff; }
+@keyframes reactup { 0% { transform: translateY(0) scale(.6); opacity: 0; } 10% { opacity: 1; transform: translateY(-20px) scale(1.1); } 80% { opacity: 1; } 100% { transform: translateY(-55vh) scale(1); opacity: 0; } }
+@media (max-height: 560px) and (orientation: landscape) { .react-btn { width: 36px; height: 36px; font-size: 1.1rem; bottom: 6px; } .react-pop { bottom: 48px; } }
+@media (orientation: portrait) { #app.swgame, #app.game { padding-bottom: 58px; } }

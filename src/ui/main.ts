@@ -2,6 +2,7 @@ import './style.css';
 import { ClientMsg, GameKind, mirrorGame, ServerMsg, SwoopSnapshot, Snapshot } from '../net/protocol';
 import { SwoopUI } from '../swoop/ui';
 import { DEFAULT_TARGET } from '../swoop/engine';
+import { initReactions } from './reactions';
 import { clearSession, defaultServerUrl, loadSession, NetState, normalizeUrl, openSocket, saveServerUrl, saveSession, sendMsg } from '../net/client';
 import { audio, SfxName } from './audio';
 import {
@@ -807,6 +808,7 @@ function onAction(el: HTMLElement) {
 // ---------- online play (friends) ----------
 
 let net: NetState | null = null;
+const reactions = initReactions({ app, active: () => !!net && screen === 'game', send: (e) => sendMsg(net?.ws ?? null, { t: 'react', e }) });
 let onlineErr = '';
 let lobbyTarget = DEFAULT_TARGET;
 let onlineBusy = false;
@@ -870,6 +872,7 @@ function onNet(n: NetState, m: ServerMsg) {
       window.clearTimeout(dealTimer); dealStep = -1;
       screen = 'lobby'; updateNetBar(); return render();
     case 'state': return onNetState(n, m);
+    case 'react': return reactions.show(m.name, m.e);
     case 'err':
       if (m.msg === 'That room has ended') { clearSession(); net = null; HUMAN = 0; screen = 'home'; onlineErr = m.msg; return render(); }
       onlineBusy = false;

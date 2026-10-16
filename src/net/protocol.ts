@@ -5,7 +5,10 @@ export type GameKind = 'dammit' | 'swoop';
 
 export interface SeatInfo { name: string; bot: boolean; connected: boolean; host: boolean }
 
+export const REACTIONS = ['👍', '😂', '😮', '😡', '😭', '👏', '🔥', '🙈'];
+
 export type ClientMsg =
+  | { t: 'react'; e: string }
   | { t: 'create'; name: string; game?: GameKind }
   | { t: 'join'; code: string; name: string }
   | { t: 'rejoin'; code: string; token: string }
@@ -60,6 +63,7 @@ export type ServerMsg =
   | { t: 'joined'; code: string; seat: number; token: string }
   | { t: 'lobby'; code: string; seat: number; seats: SeatInfo[]; game: GameKind; target: number }
   | { t: 'state'; kind: GameKind; seat: number; snap: Snapshot | SwoopSnapshot; lines: string[]; flash: number[]; actor: number | null; drawn: number | null; resume: boolean; seats: SeatInfo[] }
+  | { t: 'react'; seat: number; name: string; e: string }
   | { t: 'err'; msg: string }
   | { t: 'left' };
 

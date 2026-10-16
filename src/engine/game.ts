@@ -49,12 +49,14 @@ export class DammitGame {
   stalemate = false;
   readonly levels: Level[];
   private rng: Rng;
+  private firstSeat = 0;
   private decks: number;
 
   constructor(names: string[], opts: Options = {}) {
     if (names.length < 2) throw new RuleError('Need at least 2 players');
     this.levels = opts.levels ?? DEFAULT_LEVELS;
     this.rng = mulberry32(opts.seed ?? Date.now());
+    this.firstSeat = opts.seed === undefined ? Math.floor(Math.random() * names.length) : 0; // random who starts (tests pass a seed: seat 0)
     this.decks = decksForPlayers(names.length);
     this.players = names.map((name, id) => ({
       id, name, level: 0, hand: [], laidDown: false, melds: [], handsWon: 0,
@@ -74,7 +76,7 @@ export class DammitGame {
     }
     this.discardPile = [deck.pop()!];
     this.drawPile = deck;
-    this.current = (this.handNumber - 1) % this.players.length;
+    this.current = (this.firstSeat + this.handNumber - 1) % this.players.length;
     this.phase = 'draw';
     this.status = 'playing';
     this.stallRecycles = 0;

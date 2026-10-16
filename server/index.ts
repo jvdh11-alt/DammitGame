@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { botTurnSteps, cardLabel, DammitGame, extendMeld, RuleError } from '../src/engine';
-import { ClientMsg, GameKind, SeatInfo, ServerMsg, snapshotFor, swoopSnapshotFor } from '../src/net/protocol';
+import { ClientMsg, GameKind, REACTIONS, SeatInfo, ServerMsg, snapshotFor, swoopSnapshotFor } from '../src/net/protocol';
 import { describePlay, DEFAULT_TARGET, SwoopError, SwoopGame } from '../src/swoop/engine';
 import { swoopBotSteps } from '../src/swoop/bot';
 import { cardLabel as label } from '../src/engine/cards';
@@ -19,7 +19,7 @@ const TAKEOVER_MS = Number(process.env.TAKEOVER_MS) || 10000; // a dropped playe
 const BOT_NAMES = ['Ruby', 'Max', 'Ivy', 'Otis', 'Nora', 'Leo', 'Maya', 'Finn', 'Zoe', 'Hank', 'Lena', 'Jude', 'Cleo', 'Gus', 'Pearl', 'Walt', 'Dot', 'Ezra', 'Mabel', 'Ike'];
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
-interface Seat { name: string; bot: boolean; token: string; ws: WebSocket | null; lostAt: number }
+interface Seat { name: string; bot: boolean; token: string; ws: WebSocket | null; lostAt: number; lastReact?: number }
 
 const meldCardIds = (g: DammitGame) => new Set(g.players.flatMap((p) => p.melds.flatMap((m) => m.cards.map((c) => c.id))));
 
@@ -84,7 +84,7 @@ class Room {
     clearTimeout(this.timer);
     const g = this.game;
     if (!g || g.status !== 'playing') return;
-    if (g instanceof SwoopGame && g.lastPlay?.swoop && g.lastPlay !== this.pausedFor) { this.pausedFor = g.lastPlay; this.pauseUntil = Date.now() + SWOOP_HOLD_MS; }
+    if (g instanceof SwoopGame && (g.lastPlay?.swoop || g.lastPlay?.took) && g.lastPlay !== this.pausedFor) { this.pausedFor = g.lastPlay; this.pauseUntil = Date.now() + SWOOP_HOLD_MS; }
     let wait = Math.max(0, this.pauseUntil - Date.now());
     if (this.gen && this.genSeat !== g.current) this.gen = null;
     if (!this.gen) {
@@ -325,6 +325,14 @@ function handle(ws: WebSocket, m: ClientMsg) {
   const { room, seat } = w;
   room.lastActive = Date.now();
   switch (m.t) {
+    case 'react': {
+      if (!room.game || !REACTIONS.includes(String(m.e))) return;
+      const now = Date.now();
+      if (now - (room.seats[seat].lastReact ?? 0) < 700) return; // no spamming
+      room.seats[seat].lastReact = now;
+      room.seats.forEach((s) => room.send(s, { t: 'react', seat, name: room.seats[seat].name, e: m.e }));
+      return;
+    }
     case 'addbot':
       if (room.game || seat !== room.hostSeat() || room.seats.length >= MAX_SEATS) return;
       room.seats.push({ name: room.freeBotName(), bot: true, token: '', ws: null, lostAt: 0 });
