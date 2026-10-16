@@ -12,6 +12,7 @@ import { cardLabel as label } from '../src/engine/cards';
 
 const PORT = Number(process.env.PORT) || 8787;
 const MAX_SEATS = 20;
+const SWOOP_HOLD_MS = 2800;                            // let everyone see a swooped pile before play moves on
 const STEP_MS = Number(process.env.STEP_MS) || 1200;      // pause between bot actions
 const DEAL_MS = Number(process.env.DEAL_MS) || 4800;      // let everyone's deal animation finish
 const TAKEOVER_MS = Number(process.env.TAKEOVER_MS) || 10000; // a dropped player is replaced by a bot after this long
@@ -31,6 +32,7 @@ class Room {
   genSeat = -1;
   timer: ReturnType<typeof setTimeout> | undefined;
   pauseUntil = 0;
+  pausedFor: unknown = null;
   lastActive = Date.now();
   constructor(public code: string) {}
 
@@ -82,6 +84,7 @@ class Room {
     clearTimeout(this.timer);
     const g = this.game;
     if (!g || g.status !== 'playing') return;
+    if (g instanceof SwoopGame && g.lastPlay?.swoop && g.lastPlay !== this.pausedFor) { this.pausedFor = g.lastPlay; this.pauseUntil = Date.now() + SWOOP_HOLD_MS; }
     let wait = Math.max(0, this.pauseUntil - Date.now());
     if (this.gen && this.genSeat !== g.current) this.gen = null;
     if (!this.gen) {

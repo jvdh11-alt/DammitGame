@@ -53,6 +53,7 @@ export interface SwoopSnapshot {
   revealed: Card | null;
   fresh: boolean;
   lastPlay: LastPlay | null;
+  swooped: Card[] | null;
 }
 
 export type ServerMsg =
@@ -85,14 +86,15 @@ const hiddenSwoop = (n: number, base: number): Card[] => Array.from({ length: n 
 
 /** A seat's view of a Swoop table: own hand and everyone's face-up board cards; mystery cards are only "there or not". */
 export function swoopSnapshotFor(g: SwoopGame, seat: number): SwoopSnapshot {
+  const open = g.status !== 'playing'; // round over: everyone's leftover cards are shown
   return {
     players: g.players.map((p: SwoopPlayer) => ({
       id: p.id, name: p.name, total: p.total, board: p.board,
-      hand: p.id === seat ? p.hand : hiddenSwoop(p.hand.length, -1 - p.id * 1000),
-      mystery: p.mystery.map((c, i) => (c ? ({ id: -500 - p.id * 10 - i, rank: 0, suit: 'S' } as Card) : null)),
+      hand: open || p.id === seat ? p.hand : hiddenSwoop(p.hand.length, -1 - p.id * 1000),
+      mystery: open ? p.mystery : p.mystery.map((c, i) => (c ? ({ id: -500 - p.id * 10 - i, rank: 0, suit: 'S' } as Card) : null)),
     })),
     pile: g.pile, stackCount: g.stackCount, current: g.current, status: g.status, roundNumber: g.roundNumber, target: g.target,
-    winners: g.winners, lastOut: g.lastOut, lastRoundPoints: g.lastRoundPoints, revealed: g.revealed, fresh: g.fresh, lastPlay: g.lastPlay,
+    winners: g.winners, lastOut: g.lastOut, lastRoundPoints: g.lastRoundPoints, revealed: g.revealed, fresh: g.fresh, lastPlay: g.lastPlay, swooped: g.swooped,
   };
 }
 

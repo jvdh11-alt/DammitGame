@@ -46,6 +46,8 @@ export class SwoopGame {
   /** True until the current player plays a card this turn (or after a swoop): mystery cards may be flipped. */
   fresh = true;
   lastPlay: LastPlay | null = null;
+  /** The whole pile as it stood when it was last swooped (so the table can show it for a moment). */
+  swooped: Card[] | null = null;
   private turns = 0;
   private rng: Rng;
   private decks: number;
@@ -194,6 +196,7 @@ export class SwoopGame {
     const play: LastPlay = { player: p.id, ids: cards.map((c) => c.id), rank, count: this.topRun(), swoop, took: false };
     this.lastPlay = play;
     if (swoop) {
+      this.swooped = [...this.pile];
       this.stackCount += this.pile.length;
       this.pile = [];
       this.fresh = true; // same player carries on

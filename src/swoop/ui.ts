@@ -39,6 +39,8 @@ export class SwoopUI {
   private timer = 0;
   private gen: Generator<string, void> | null = null;
   private flashIds = new Set<number>();
+  private holdUntil = 0;
+  private holdPlay: unknown = null;
   private flashTimer = 0;
   private seatInfo: { name: string; bot: boolean; connected: boolean; host: boolean }[] = [];
 
@@ -91,6 +93,7 @@ export class SwoopUI {
   private resetRound() {
     this.selected.clear(); this.armed = null; this.message = ''; this.panel = null; this.gen = null;
     this.flashIds.clear();
+    this.holdUntil = 0; this.holdPlay = null;
   }
 
   private noteLines(lines: string[]) {
@@ -101,6 +104,10 @@ export class SwoopUI {
       if (fx) window.setTimeout(() => this.env.sfx(fx), i * 90);
     });
     const lp = this.g?.lastPlay;
+    if (lp?.swoop && this.g?.swooped && lp !== this.holdPlay) {
+      this.holdPlay = lp; this.holdUntil = Date.now() + 2800;
+      window.setTimeout(() => { if (this.g) this.render(); }, 2850);
+    }
     if (lp && !lp.took) {
       lp.ids.forEach((i) => this.flashIds.add(i));
       window.clearTimeout(this.flashTimer);
@@ -182,7 +189,7 @@ export class SwoopUI {
       }
       this.render();
       this.schedule();
-    }, this.env.botDelay());
+    }, Math.max(this.env.botDelay(), this.holdUntil - Date.now()));
   }
 
   private nextRound() {
@@ -315,6 +322,8 @@ export class SwoopUI {
     app.className = 'swgame';
     const me = g.players[this.me];
     const myTurn = this.myTurn();
+    const holding = Date.now() < this.holdUntil && !!g.swooped && g.pile.length === 0;
+    const shown = holding ? g.swooped! : g.pile;
     const top = g.pile[g.pile.length - 1];
     const run = g.topRun();
     const sel = g.available(me).filter((c) => this.selected.has(c.id));
@@ -363,8 +372,8 @@ export class SwoopUI {
       <div class="sw-opps ${g.players.length > 9 ? 'many' : ''}">${opps}</div>
       <div class="sw-mid">
         <div class="sw-pilebox">
-          <div class="sw-fan" style="--step:${Math.max(5, Math.min(18, Math.floor(210 / Math.max(1, g.pile.length))))}px">${g.pile.length ? g.pile.map((c, i) => this.card(c, `${i === g.pile.length - 1 && this.flashIds.has(c.id) ? 'flash' : ''}`, '', 'div')).join('') : '<div class="swc empty">Empty</div>'}</div>
-          <div class="sw-call">${call ? `<b>${env.esc(call)}</b>` : '<span class="muted">Empty pile</span>'}</div>
+          <div class="sw-fan ${holding ? 'swooped' : ''}" style="--step:${Math.max(5, Math.min(18, Math.floor(210 / Math.max(1, shown.length))))}px">${shown.length ? shown.map((c, i) => this.card(c, `${!holding && i === shown.length - 1 && this.flashIds.has(c.id) ? 'flash' : ''}`, '', 'div')).join('') : '<div class="swc empty">Empty</div>'}</div>
+          <div class="sw-call">${holding ? '<b class="sw-boom">SWOOP! Pile cleared</b>' : call ? `<b>${env.esc(call)}</b>` : '<span class="muted">Empty pile</span>'}</div>
         </div>
         ${revealedHtml}
         <div class="sw-info"><div class="sw-status ${myTurn ? 'mine' : ''}">${env.esc(status)}</div><div class="sw-last muted">${last}</div>
@@ -388,7 +397,17 @@ export class SwoopUI {
     const order = g.players.slice().sort((a, b) => a.total - b.total || a.id - b.id);
     return `<table><tr><th>#</th><th>Player</th><th>${g.status === 'playing' ? '' : 'Round'}</th><th>Total</th></tr>${order.map((p, i) =>
       `<tr class="${p.id === this.me ? 'me' : ''}"><td>${i + 1}</td><td>${this.env.esc(p.name)}${g.status !== 'playing' && p.id === g.lastOut ? ' 🏁' : ''}</td>
-        <td>${g.status === 'playing' ? '' : `+${g.lastRoundPoints[p.id] ?? 0}`}</td><td>${p.total}</td></tr>`).join('')}</table>`;
+        <td>${g.status === 'playing' ? '' : `+${g.lastRoundPoints[p.id] ?? 0}`}</td><td>${p.total}</td></tr>`).join('')}</table>${g.status === 'playing' ? '' : this.leftovers()}`;
+  }
+
+  /** End of round: every player's remaining cards (hand, board, mystery) with what they score. */
+  private leftovers(): string {
+    const g = this.g!;
+    const rows = g.players.map((p) => {
+      const cs = [...p.hand, ...p.board.filter((c): c is Card => c !== null), ...p.mystery.filter((c): c is Card => c !== null)].sort((a, b) => a.rank - b.rank);
+      return `<div class="sw-left"><div class="sw-lh"><b>${this.env.esc(p.name)}</b> <span class="muted">${cs.length ? `${cs.length} left` : 'went out'} · +${g.lastRoundPoints[p.id] ?? 0}</span></div><div class="sw-lc">${cs.map((c) => this.card(c, '', '', 'div')).join('')}</div></div>`;
+    }).join('');
+    return `<div class="sw-leftwrap"><div class="muted">Cards left on the table</div>${rows}</div>`;
   }
 
   private overlay(): string {
