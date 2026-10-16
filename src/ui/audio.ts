@@ -149,30 +149,153 @@ class Synth {
   }
 }
 
-// ---------- music: a slow, swung 4-chord loop with bass, brushes and a gentle improvised line ----------
+// ---------- music: five synthesised styles, from slow and mellow to upbeat ----------
 
-type ChordType = 'maj9' | 'm9' | 'dom13';
+type ChordType = 'maj9' | 'm9' | 'dom13' | 'maj7' | 'm7' | 'dom7';
 interface Chord { root: number; type: ChordType }
-const VOICING: Record<ChordType, number[]> = { maj9: [4, 7, 11, 14], m9: [3, 7, 10, 14], dom13: [4, 10, 14, 21] };
-const COLOR: Record<ChordType, number[]> = { maj9: [0, 4, 7, 9, 11, 14], m9: [0, 3, 7, 10, 14, 17], dom13: [0, 4, 9, 10, 14, 21] };
+const VOICING: Record<ChordType, number[]> = {
+  maj9: [4, 7, 11, 14], m9: [3, 7, 10, 14], dom13: [4, 10, 14, 21],
+  maj7: [4, 7, 11, 16], m7: [3, 7, 10, 15], dom7: [4, 7, 10, 14],
+};
+const COLOR: Record<ChordType, number[]> = {
+  maj9: [0, 4, 7, 9, 11, 14], m9: [0, 3, 7, 10, 14, 17], dom13: [0, 4, 9, 10, 14, 21],
+  maj7: [0, 4, 7, 9, 11], m7: [0, 3, 7, 10, 12], dom7: [0, 4, 7, 9, 10],
+};
 
 const C = (root: number, type: ChordType): Chord => ({ root, type });
-const PROGRESSIONS: Chord[][] = [
-  [C(48, 'maj9'), C(45, 'm9'), C(50, 'm9'), C(43, 'dom13')],   // I vi ii V in C
-  [C(53, 'maj9'), C(50, 'm9'), C(55, 'm9'), C(48, 'dom13')],   // I vi ii V in F
-  [C(51, 'maj9'), C(48, 'm9'), C(53, 'm9'), C(46, 'dom13')],   // I vi ii V in Eb
-];
-const FORM = [0, 0, 1, 1, 0, 2, 1, 0];                          // which progression, 4 bars each
 
-const BPM = 84;
-const BEAT = 60 / BPM;
-const SWING = 0.62; // the off-beat eighth lands this far through the beat
+export interface MusicStyle { id: string; label: string; blurb: string; bpm: number }
+type Ctx2 = { s: Synth; rng: () => number; t: number; beat: number; bar: number; chord: Chord; next: Chord };
+interface StyleDef extends MusicStyle { progs: Chord[][]; form: number[]; play: (c: Ctx2) => void }
+
+const pickTone = (c: Ctx2, lo: number, hi: number) => {
+  const pc = (c.chord.root + COLOR[c.chord.type][Math.floor(c.rng() * COLOR[c.chord.type].length)]) % 12;
+  let note = lo + ((pc - lo) % 12 + 12) % 12;
+  if (note > hi) note -= 12;
+  return note;
+};
+const stabChord = (c: Ctx2, at: number, dur: number, vel: number, lift = 12) =>
+  VOICING[c.chord.type].forEach((iv, i) => c.s.epiano(c.chord.root + iv + lift, at + i * 0.011, dur, vel * (0.85 + c.rng() * 0.3)));
+const kick = (s: Synth, t: number, vel = 1) => { s.bass(38, t, 0.16, vel); s.noiseBurst(t, 0.03, vel * 0.05, 'lowpass', 400, 200, 0.7); };
+
+const STYLES: StyleDef[] = [
+  { // 1. the original: slow, swung, jazzy
+    id: 'lounge', label: 'Smooth Lounge', blurb: 'Slow and swung, jazzy', bpm: 84,
+    progs: [
+      [C(48, 'maj9'), C(45, 'm9'), C(50, 'm9'), C(43, 'dom13')],
+      [C(53, 'maj9'), C(50, 'm9'), C(55, 'm9'), C(48, 'dom13')],
+      [C(51, 'maj9'), C(48, 'm9'), C(53, 'm9'), C(46, 'dom13')],
+    ],
+    form: [0, 0, 1, 1, 0, 2, 1, 0],
+    play(c) {
+      const { s, rng, chord, next } = c;
+      const SW = 0.62, h = (n: number) => c.t + n * c.beat;
+      stabChord(c, h(0), c.beat * 1.7, 0.8);
+      stabChord(c, h(1 + SW + 0.04), c.beat * 0.9, 0.5);
+      if (rng() < 0.4) stabChord(c, h(3 + SW), c.beat * 0.7, 0.4);
+      s.bass(chord.root - 12, h(0), c.beat * 1.5, 0.9);
+      s.bass(chord.root - 12 + (rng() < 0.5 ? 7 : 12), h(2), c.beat * 1.2, 0.7);
+      s.bass(rng() < 0.65 ? next.root - 12 + (rng() < 0.5 ? -1 : 1) : chord.root - 5, h(3), c.beat * 0.9, 0.6);
+      s.hat(h(1), 0.6); s.hat(h(3), 0.6);
+      for (const beat of [0, 1, 2, 3]) if (rng() < 0.35) s.hat(h(beat + SW), 0.25);
+      if (rng() < 0.75) {
+        const slots = [0, 1, 1 + SW, 2, 2 + SW, 3, 3 + SW].filter(() => rng() < 0.4);
+        for (const slot of slots) s.epiano(pickTone(c, 72, 86), h(slot), c.beat * (0.6 + rng() * 0.9), 0.55);
+      }
+    },
+  },
+  { // 2. very slow, sparse, dreamy
+    id: 'chill', label: 'Late Night Chill', blurb: 'Very slow, soft and sleepy', bpm: 62,
+    progs: [
+      [C(45, 'm9'), C(41, 'maj9'), C(48, 'maj7'), C(43, 'dom7')],
+      [C(50, 'm9'), C(46, 'maj9'), C(43, 'm7'), C(45, 'dom7')],
+    ],
+    form: [0, 0, 1, 0],
+    play(c) {
+      const { s, rng, chord } = c;
+      const h = (n: number) => c.t + n * c.beat;
+      stabChord(c, h(0), c.beat * 3.6, 0.55, 12);
+      s.bass(chord.root - 12, h(0), c.beat * 2.5, 0.8);
+      if (rng() < 0.5) s.bass(chord.root - 5, h(2.5), c.beat * 1.2, 0.5);
+      s.hat(h(1), 0.35); s.hat(h(3), 0.35);
+      if (rng() < 0.55) s.bell(pickTone(c, 76, 90), h(rng() < 0.5 ? 1.5 : 2.5), 2.2, 0.4);
+      if (rng() < 0.45) s.epiano(pickTone(c, 66, 79), h(2), c.beat * 1.8, 0.45);
+    },
+  },
+  { // 3. bossa nova: gentle, steady, a little Brazilian
+    id: 'bossa', label: 'Cafe Bossa', blurb: 'Gentle bossa nova groove', bpm: 100,
+    progs: [
+      [C(50, 'm7'), C(43, 'dom7'), C(48, 'maj7'), C(48, 'maj7')],
+      [C(45, 'm7'), C(50, 'm7'), C(43, 'dom7'), C(48, 'maj7')],
+    ],
+    form: [0, 1, 0, 1],
+    play(c) {
+      const { s, rng, chord } = c;
+      const h = (n: number) => c.t + n * c.beat;
+      // classic bossa comping: stabs on 1, the "and" of 2, 3.5, 4
+      for (const [at, v] of [[0, 0.7], [1.5, 0.55], [2.5, 0.5], [3.5, 0.45]] as const) stabChord(c, h(at), c.beat * 0.55, v, 12);
+      s.bass(chord.root - 12, h(0), c.beat * 1.3, 0.85);
+      s.bass(chord.root - 5, h(1.5), c.beat * 1.2, 0.7);
+      s.bass(chord.root - 12, h(2), c.beat * 1.0, 0.75);
+      s.bass(chord.root - 5, h(3.5), c.beat * 0.8, 0.6);
+      for (let i = 0; i < 8; i++) s.hat(h(i / 2), i % 2 ? 0.28 : 0.4); // steady shaker-ish eighths
+      s.noiseBurst(h(0), 0.03, 0.04, 'bandpass', 1800, 1800, 2); // rim click
+      s.noiseBurst(h(1.5), 0.03, 0.03, 'bandpass', 1800, 1800, 2);
+      if (rng() < 0.6) s.epiano(pickTone(c, 72, 86), h([0.5, 1, 2, 3][Math.floor(rng() * 4)]), c.beat * 0.8, 0.5);
+    },
+  },
+  { // 4. funk: syncopated stabs, busy bass, 16th hats
+    id: 'funk', label: 'Funky Groove', blurb: 'Upbeat and syncopated', bpm: 108,
+    progs: [
+      [C(45, 'dom7'), C(45, 'dom7'), C(50, 'dom7'), C(45, 'dom7')],
+      [C(48, 'dom7'), C(48, 'dom7'), C(53, 'dom7'), C(55, 'dom7')],
+    ],
+    form: [0, 0, 1, 0],
+    play(c) {
+      const { s, rng, chord } = c;
+      const h = (n: number) => c.t + n * c.beat;
+      kick(s, h(0), 0.9); kick(s, h(2.5), 0.7); if (rng() < 0.5) kick(s, h(1.75), 0.6);
+      s.noiseBurst(h(1), 0.1, 0.12, 'bandpass', 1800, 1500, 0.9); s.noiseBurst(h(3), 0.1, 0.12, 'bandpass', 1800, 1500, 0.9); // snare
+      for (let i = 0; i < 16; i++) s.hat(h(i / 4), i % 4 === 2 ? 0.55 : 0.3);
+      for (const [at, v] of [[0.5, 0.6], [1.75, 0.55], [2.25, 0.6], [3.5, 0.5]] as const) stabChord(c, h(at), c.beat * 0.22, v, 12);
+      const line = [0, 0, 12, 0, 10, 7, 0, 5];
+      line.forEach((iv, i) => { if (i % 2 === 0 || rng() < 0.6) s.bass(chord.root - 12 + iv, h(i / 2), c.beat * 0.4, 0.75); });
+      if (rng() < 0.5) s.epiano(pickTone(c, 74, 88), h([1, 2, 3.25][Math.floor(rng() * 3)]), c.beat * 0.3, 0.45);
+    },
+  },
+  { // 5. bright four-on-the-floor dance-pop
+    id: 'upbeat', label: 'Bright Pop', blurb: 'Fast, bright and danceable', bpm: 124,
+    progs: [
+      [C(48, 'maj7'), C(55, 'dom7'), C(45, 'm7'), C(41, 'maj7')],
+      [C(53, 'maj7'), C(48, 'maj7'), C(50, 'm7'), C(55, 'dom7')],
+    ],
+    form: [0, 0, 1, 0],
+    play(c) {
+      const { s, rng, chord } = c;
+      const h = (n: number) => c.t + n * c.beat;
+      for (let b = 0; b < 4; b++) kick(s, h(b), 0.85);
+      s.noiseBurst(h(1), 0.12, 0.1, 'bandpass', 2200, 1800, 0.9); s.noiseBurst(h(3), 0.12, 0.1, 'bandpass', 2200, 1800, 0.9); // clap
+      for (let b = 0; b < 4; b++) s.hat(h(b + 0.5), 0.6); // off-beat open hats
+      for (let i = 0; i < 8; i++) s.bass(chord.root - 12 + (i % 2 ? 12 : 0), h(i / 2 + 0.01), c.beat * 0.3, 0.7); // pumping octave bass
+      stabChord(c, h(0), c.beat * 1.0, 0.7, 12); stabChord(c, h(2), c.beat * 1.0, 0.6, 12);
+      // sparkly arpeggio
+      const tones = VOICING[chord.type].map((iv) => chord.root + iv + 24);
+      for (let i = 0; i < 8; i++) if (rng() < 0.8) s.bell(tones[(i + Math.floor(rng() * 2)) % tones.length], h(i / 2), 0.5, 0.35);
+    },
+  },
+];
+
+export const MUSIC_STYLES: MusicStyle[] = STYLES.map(({ id, label, blurb, bpm }) => ({ id, label, blurb, bpm }));
+export const DEFAULT_STYLE = 'lounge';
 
 export class Music {
   private nextBar = 0;
   private bar = 0;
+  private def: StyleDef = STYLES[0];
 
-  constructor(private s: Synth, private rng: () => number = Math.random) {}
+  constructor(private s: Synth, private rng: () => number = Math.random, style: string = DEFAULT_STYLE) { this.setStyle(style); }
+
+  setStyle(id: string) { this.def = STYLES.find((x) => x.id === id) ?? STYLES[0]; }
 
   start(t0: number) {
     this.nextBar = t0;
@@ -181,49 +304,20 @@ export class Music {
 
   /** Schedule every bar that begins before `until` (audio-clock seconds). */
   schedule(until: number) {
+    const beat = 60 / this.def.bpm;
     while (this.nextBar < until) {
-      this.playBar(this.nextBar, this.bar++);
-      this.nextBar += BEAT * 4;
+      this.playBar(this.nextBar, this.bar++, beat);
+      this.nextBar += beat * 4;
     }
   }
 
   private chordAt(bar: number): Chord {
-    return PROGRESSIONS[FORM[Math.floor(bar / 4) % FORM.length]][bar % 4];
+    const d = this.def;
+    return d.progs[d.form[Math.floor(bar / 4) % d.form.length]][bar % 4];
   }
 
-  private playBar(t: number, bar: number) {
-    const { s, rng } = this;
-    const chord = this.chordAt(bar);
-    const next = this.chordAt(bar + 1);
-    const h = (n: number) => t + n * BEAT;
-
-    // Comping: rolled chord on 1, a swung stab on the "and" of 2, sometimes another before the bar ends.
-    const stab = (at: number, dur: number, vel: number) =>
-      VOICING[chord.type].forEach((iv, i) => s.epiano(chord.root + iv + 12, at + i * 0.011, dur, vel * (0.85 + rng() * 0.3)));
-    stab(h(0), BEAT * 1.7, 0.8);
-    stab(h(1 + SWING + 0.04), BEAT * 0.9, 0.5);
-    if (rng() < 0.4) stab(h(3 + SWING), BEAT * 0.7, 0.4);
-
-    // Bass: root, then fifth, then a chromatic approach into the next chord.
-    s.bass(chord.root - 12, h(0), BEAT * 1.5, 0.9);
-    s.bass(chord.root - 12 + (rng() < 0.5 ? 7 : 12), h(2), BEAT * 1.2, 0.7);
-    s.bass(rng() < 0.65 ? next.root - 12 + (rng() < 0.5 ? -1 : 1) : chord.root - 5, h(3), BEAT * 0.9, 0.6);
-
-    // Brushes: soft hats on 2 and 4, a few ghost notes.
-    s.hat(h(1), 0.6);
-    s.hat(h(3), 0.6);
-    for (const beat of [0, 1, 2, 3]) if (rng() < 0.35) s.hat(h(beat + SWING), 0.25);
-
-    // A gentle improvised line from the chord's colour tones.
-    if (rng() < 0.75) {
-      const slots = [0, 1, 1 + SWING, 2, 2 + SWING, 3, 3 + SWING].filter(() => rng() < 0.4);
-      for (const slot of slots) {
-        const pc = (chord.root + COLOR[chord.type][Math.floor(rng() * COLOR[chord.type].length)]) % 12;
-        let note = 72 + ((pc - 72) % 12 + 12) % 12;
-        if (note > 86) note -= 12;
-        s.epiano(note, h(slot), BEAT * (0.6 + rng() * 0.9), 0.55);
-      }
-    }
+  private playBar(t: number, bar: number, beat: number) {
+    this.def.play({ s: this.s, rng: this.rng, t, beat, bar, chord: this.chordAt(bar), next: this.chordAt(bar + 1) });
   }
 }
 
@@ -302,6 +396,7 @@ class AudioManager {
   musicOn = store.get('musicOn') === '1';
   sfxOn = store.get('sfxOn') !== '0';
   musicVol = level('musicVol', 0.5);
+  musicStyle = MUSIC_STYLES.some((x) => x.id === store.get('musicStyle')) ? store.get('musicStyle')! : DEFAULT_STYLE;
   sfxVol = level('sfxVol', 0.7);
   private ctx?: AudioContext;
   private musicBus?: GainNode;
@@ -336,7 +431,7 @@ class AudioManager {
     this.sfxBus.connect(master);
 
     this.sfxSynth = new Synth(ctx, this.sfxBus, 0.2);
-    this.music = new Music(new Synth(ctx, this.musicBus, 0.3));
+    this.music = new Music(new Synth(ctx, this.musicBus, 0.3), Math.random, this.musicStyle);
     document.addEventListener('visibilitychange', () => this.apply());
   }
 
@@ -361,6 +456,13 @@ class AudioManager {
   }
 
   setMusicOn(on: boolean) { this.musicOn = on; store.set('musicOn', on ? '1' : '0'); this.unlock(); }
+  setMusicStyle(id: string) {
+    if (!MUSIC_STYLES.some((x) => x.id === id)) return;
+    this.musicStyle = id; store.set('musicStyle', id);
+    this.unlock();
+    this.music?.setStyle(id);
+    if (this.ctx && this.musicOn && this.timer !== undefined) this.music?.start(this.ctx.currentTime + 0.15); // switch right away
+  }
   setSfxOn(on: boolean) { this.sfxOn = on; store.set('sfxOn', on ? '1' : '0'); this.unlock(); }
   setMusicVol(v: number) { this.musicVol = Math.min(1, Math.max(0, v)); store.set('musicVol', String(this.musicVol)); this.unlock(); }
   setSfxVol(v: number) { this.sfxVol = Math.min(1, Math.max(0, v)); store.set('sfxVol', String(this.sfxVol)); this.unlock(); }
@@ -375,7 +477,7 @@ export const audio = new AudioManager();
 
 // ---------- offline rendering (used by tests to check the synthesis without speakers) ----------
 
-export async function renderOffline(what: 'music' | SfxName, seconds: number): Promise<Float32Array> {
+export async function renderOffline(what: 'music' | SfxName, seconds: number, style: string = DEFAULT_STYLE): Promise<Float32Array> {
   const sr = 44100;
   const ctx = new OfflineAudioContext(2, Math.floor(sr * seconds), sr);
   const comp = ctx.createDynamicsCompressor();
@@ -386,7 +488,7 @@ export async function renderOffline(what: 'music' | SfxName, seconds: number): P
   bus.connect(comp);
   comp.connect(ctx.destination);
   if (what === 'music') {
-    const m = new Music(new Synth(ctx, bus, 0.3));
+    const m = new Music(new Synth(ctx, bus, 0.3), Math.random, style);
     m.start(0.05);
     m.schedule(seconds);
   } else {

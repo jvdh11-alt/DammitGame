@@ -7,6 +7,31 @@ const groupByRank = (cards: Card[]): Map<number, Card[]> => {
   return m;
 };
 
+const SWOOP_THRESHOLD = 4;
+
+/**
+ * How much a bot wants to spend its SWOOP card right now (higher = more). It is a judgement call, not a hard rule:
+ * a swoop clears a big pile (so nobody, me included, gets stuck taking it), gives the bot a free extra play on an
+ * empty pile, and gets a 25-point liability out of the hand. Against that, a normal card that fits is usually
+ * the better play, so it needs real reasons to burn the 10 while one is available.
+ */
+export function swoopWorth(g: SwoopGame, playable: number[]): number {
+  const me = g.player;
+  let w = 0;
+  w += g.pile.length * 0.35;                         // the bigger the pile, the nastier it is for whoever gets stuck
+  const left = me.hand.length + me.board.filter(Boolean).length + me.mystery.filter(Boolean).length;
+  if (left <= 6) w += 3;                             // near the end a stuck 10 costs 25 points; shed it
+  const top = g.topRank();
+  const best = Math.max(...playable);
+  if (top !== null && top <= 4 && best <= top) w += 2; // pile is low and I only have low cards: I'm about to be squeezed
+  const tens = g.available(me).filter((c) => c.rank === SWOOP_RANK).length;
+  if (tens >= 2) w += 2;                             // more than one 10: no need to hoard them
+  if (best >= 11) w -= 1.5;                          // a high card that fits is exactly what I want to shed
+  const threat = g.players.some((p) => p.id !== me.id && p.hand.length + p.board.filter(Boolean).length + p.mystery.filter(Boolean).length <= 3);
+  if (threat) w -= 1.5;                              // someone is nearly out: a big pile is what might trip them, don't clear it for them
+  return w;
+}
+
 /**
  * One bot turn, one action at a time (so a UI can pace and show each), yielding a log line per action.
  * A turn can contain several actions because a SWOOP lets the same player carry on.
@@ -61,8 +86,8 @@ export function* swoopBotSteps(g: SwoopGame): Generator<string, void> {
       const finisher = numbers.find(([rank, cs]) => rank === top && run + cs.length >= 4);
       if (finisher) pick = finisher[1].slice(0, 4 - run);
     }
-    // 2) a SWOOP card when the pile is big, or when it is all we can play.
-    if (!pick && swoops.length && (g.pile.length >= 6 || numbers.length === 0)) pick = [swoops[0]];
+    // 2) a SWOOP card when it is worth it (see swoopWorth), or when it is all we can play.
+    if (!pick && swoops.length && (numbers.length === 0 || swoopWorth(g, numbers.map(([r]) => r)) >= SWOOP_THRESHOLD)) pick = [swoops[0]];
     // 3) otherwise: get rid of the highest legal number first (high cards are the hardest to shed later).
     if (!pick && numbers.length) { const [rank, cs] = numbers[numbers.length - 1]; pick = cs.slice(0, g.maxCount(rank)); }
     if (!pick) pick = [swoops[0]];

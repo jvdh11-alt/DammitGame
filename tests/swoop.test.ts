@@ -173,3 +173,21 @@ describe('max four of a number', () => {
     expect(g.checkPlay(g.players[0].hand.map((x) => x.id))).not.toBeNull();
   });
 });
+
+describe('bot swoop judgement', () => {
+  it('keeps the 10 when a normal card fits a mid-size pile, spends it on a huge pile', async () => {
+    const { swoopWorth } = await import('../src/swoop/bot');
+    const mid = rigged([[c(8), c(10), c(2), c(3), c(4), c(5), c(6), c(7), c(9), c(1)], [c(5), c(5), c(5), c(5), c(5), c(5)]]);
+    mid.pile = [c(12), c(12), c(11), c(12), c(11), c(12), c(11), c(12)];
+    expect(swoopWorth(mid, [8, 2])).toBeLessThan(4);
+    const big = rigged([[c(8), c(10), c(2), c(3), c(4), c(5), c(6), c(7), c(9), c(1)], [c(5), c(5), c(5), c(5), c(5), c(5)]]);
+    big.pile = Array.from({ length: 16 }, () => c(12));
+    expect(swoopWorth(big, [8, 2])).toBeGreaterThanOrEqual(4);
+  });
+  it('sheds the 10 near the end of the round', async () => {
+    const { swoopWorth } = await import('../src/swoop/bot');
+    const g = rigged([[c(8), c(10), c(2)], [c(5), c(5), c(5), c(5), c(5), c(5)]]);
+    g.pile = [c(12), c(12), c(11), c(12), c(11), c(12)];
+    expect(swoopWorth(g, [8, 2])).toBeGreaterThanOrEqual(4);
+  });
+});

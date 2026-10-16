@@ -4,7 +4,7 @@ import { SwoopUI } from '../swoop/ui';
 import { DEFAULT_TARGET } from '../swoop/engine';
 import { initReactions } from './reactions';
 import { clearSession, defaultServerUrl, loadSession, NetState, normalizeUrl, openSocket, saveServerUrl, saveSession, sendMsg } from '../net/client';
-import { audio, SfxName } from './audio';
+import { audio, MUSIC_STYLES, SfxName } from './audio';
 import {
   Card, cardLabel, DammitGame, extendMeld, findExtraMelds, findObjective, MeldRef, Requirement, RuleError,
   botTurnSteps, standings,
@@ -223,7 +223,8 @@ function soundRows(): string {
   const row = (kind: 'music' | 'sfx', icon: string, label: string, on: boolean, vol: number) =>
     `<div class="srow"><button class="ghost small ${on ? 'on' : ''}" data-action="${kind}Toggle" aria-pressed="${on}">${icon} ${label}: ${on ? 'On' : 'Off'}</button>
       <input type="range" min="0" max="100" step="1" value="${Math.round(vol * 100)}" data-vol="${kind}" aria-label="${label} volume" ${on ? '' : 'disabled'}></div>`;
-  return row('music', '🎵', 'Music', audio.musicOn, audio.musicVol) + row('sfx', '🔔', 'Effects', audio.sfxOn, audio.sfxVol);
+  const styles = `<div class="srow"><label class="stylepick">🎼 Style <select data-musicstyle aria-label="Music style">${MUSIC_STYLES.map((m) => `<option value="${m.id}" ${m.id === audio.musicStyle ? 'selected' : ''}>${m.label} · ${m.blurb}</option>`).join('')}</select></label></div>`;
+  return row('music', '🎵', 'Music', audio.musicOn, audio.musicVol) + styles + row('sfx', '🔔', 'Effects', audio.sfxOn, audio.sfxVol);
 }
 
 /** Header: a Sound menu. Landing page: the same rows laid out inline. */
@@ -1101,6 +1102,7 @@ app.addEventListener('input', (ev) => {
 app.addEventListener('change', (ev) => {
   const t = ev.target as HTMLInputElement;
   if (t.dataset.vol === 'sfx') audio.sfx('draw'); // preview the new effects volume
+  if (t.hasAttribute('data-musicstyle')) { audio.setMusicStyle((t as unknown as HTMLSelectElement).value); if (!audio.musicOn) { audio.setMusicOn(true); render(); } return; }
   if (t.hasAttribute('data-swtarget') && screen === 'lobby') {
     const v = Math.round(Number(t.value));
     if (v >= 1) { lobbyTarget = v; sendMsg(net?.ws ?? null, { t: 'settarget', target: v }); }
